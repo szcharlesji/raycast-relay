@@ -5,9 +5,17 @@ const openai = new OpenAI({
   apiKey: "dummy-key", // The key doesn't matter as we're bypassing authentication
 });
 
-const response = await openai.chat.completions.create({
-  model: "claude-3-7-sonnet-latest",
-  messages: [{ role: "user", content: "Hello, how are you?" }],
-});
+async function streamChatCompletion() {
+  const response = await openai.chat.completions.create({
+    model: "claude-3-7-sonnet-latest",
+    messages: [{ role: "user", content: "Hello, how are you?" }],
+    stream: true,
+  });
 
-console.log(response.choices[0].message.content);
+  for await (const chunk of response) {
+    // Process each chunk of data here
+    console.log(chunk);
+  }
+}
+
+streamChatCompletion().catch(console.error);

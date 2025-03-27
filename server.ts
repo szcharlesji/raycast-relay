@@ -26,6 +26,7 @@ const CACHE_REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hour
 // Credential environment variables
 const RAYCAST_BEARER_TOKEN = process.env.RAYCAST_BEARER_TOKEN;
 const RAYCAST_SIGNATURE = process.env.RAYCAST_SIGNATURE;
+const API_KEY = process.env.API_KEY;
 
 // Validate required environment variables
 if (!RAYCAST_BEARER_TOKEN || !RAYCAST_SIGNATURE) {
@@ -37,6 +38,7 @@ if (!RAYCAST_BEARER_TOKEN || !RAYCAST_SIGNATURE) {
 
 console.log("RAYCAST_BEARER_TOKEN:", RAYCAST_BEARER_TOKEN ? "Set" : "Not set");
 console.log("RAYCAST_SIGNATURE:", RAYCAST_SIGNATURE ? "Set" : "Not set");
+console.log("API_KEY:", API_KEY ? "Set" : "Not set");
 
 // Raycast headers
 const RAYCAST_HEADERS = {
@@ -49,6 +51,11 @@ const RAYCAST_HEADERS = {
   "Content-Type": "application/json",
   Connection: "close",
 };
+
+function validateApiKey(req: Request): boolean {
+  const apiKey = req.headers.get("Authorization");
+  return apiKey === `Bearer ${process.env.API_KEY}`;
+}
 
 // Cache for model mappings
 const modelCache: ModelCache = {
@@ -531,6 +538,22 @@ async function initServer(): Promise<void> {
             "Access-Control-Allow-Headers": "Content-Type, Authorization",
           },
         });
+      }
+
+      // Validate API key
+      if (!validateApiKey(req)) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Invalid API key",
+              type: "authentication_error",
+            },
+          }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
 
       // Log request

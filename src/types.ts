@@ -1,4 +1,3 @@
-// Type Definitions
 type RaycastModelInfo = {
   id: string;
   name: string;

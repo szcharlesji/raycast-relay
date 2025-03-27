@@ -1,4 +1,3 @@
-import { serve } from "bun";
 import { v4 as uuidv4 } from "uuid";
 import type {
   ModelCache,
@@ -13,49 +12,12 @@ import type {
 } from "./types";
 
 // Configuration
-const PORT = parseInt(process.env.PORT || "3000");
 const RAYCAST_API_URL =
   "https://backend.raycast.com/api/v1/ai/chat_completions";
 const RAYCAST_MODELS_URL = "https://backend.raycast.com/api/v1/ai/models";
-const USER_AGENT =
-  process.env.USER_AGENT ||
-  "Raycast/1.94.2 (macOS Version 15.3.2 (Build 24D81))";
+const USER_AGENT = "Raycast/1.94.2 (macOS Version 15.3.2 (Build 24D81))";
 const DEFAULT_MODEL = "anthropic-claude-3-7-sonnet-latest";
 const CACHE_REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hour
-
-// Credential environment variables
-const RAYCAST_BEARER_TOKEN = process.env.RAYCAST_BEARER_TOKEN;
-const RAYCAST_SIGNATURE = process.env.RAYCAST_SIGNATURE;
-const API_KEY = process.env.API_KEY;
-
-// Validate required environment variables
-if (!RAYCAST_BEARER_TOKEN || !RAYCAST_SIGNATURE) {
-  console.error(
-    "Error: RAYCAST_BEARER_TOKEN and RAYCAST_SIGNATURE environment variables are required",
-  );
-  process.exit(1);
-}
-
-console.log("RAYCAST_BEARER_TOKEN:", RAYCAST_BEARER_TOKEN ? "Set" : "Not set");
-console.log("RAYCAST_SIGNATURE:", RAYCAST_SIGNATURE ? "Set" : "Not set");
-console.log("API_KEY:", API_KEY ? "Set" : "Not set");
-
-// Raycast headers
-const RAYCAST_HEADERS = {
-  Host: "backend.raycast.com",
-  "X-Raycast-Signature": RAYCAST_SIGNATURE,
-  Accept: "application/json",
-  "User-Agent": USER_AGENT,
-  Authorization: `Bearer ${RAYCAST_BEARER_TOKEN}`,
-  "Accept-Language": "en-US,en;q=0.9",
-  "Content-Type": "application/json",
-  Connection: "close",
-};
-
-function validateApiKey(req: Request): boolean {
-  const apiKey = req.headers.get("Authorization");
-  return apiKey === `Bearer ${process.env.API_KEY}`;
-}
 
 // Cache for model mappings
 const modelCache: ModelCache = {
@@ -64,16 +26,25 @@ const modelCache: ModelCache = {
 };
 
 /**
+ * Environment variables interface for Cloudflare Workers
+ */
+export interface Env {
+  RAYCAST_BEARER_TOKEN: string;
+  RAYCAST_SIGNATURE: string;
+  API_KEY?: string;
+}
+
+/**
  * Fetches model information from Raycast API and updates the cache
  * @returns Promise<boolean> true if successful, false otherwise
  */
-async function fetchAndCacheModels(): Promise<boolean> {
+async function fetchAndCacheModels(env: Env): Promise<boolean> {
   try {
     console.log("Fetching models from Raycast API...");
 
     const response = await fetch(RAYCAST_MODELS_URL, {
       method: "GET",
-      headers: RAYCAST_HEADERS,
+      headers: getRaycastHeaders(env),
     });
 
     if (!response.ok) {
@@ -122,6 +93,32 @@ async function fetchAndCacheModels(): Promise<boolean> {
 }
 
 /**
+ * Get Raycast headers with authentication
+ */
+function getRaycastHeaders(env: Env) {
+  return {
+    Host: "backend.raycast.com",
+    "X-Raycast-Signature": env.RAYCAST_SIGNATURE,
+    Accept: "application/json",
+    "User-Agent": USER_AGENT,
+    Authorization: `Bearer ${env.RAYCAST_BEARER_TOKEN}`,
+    "Accept-Language": "en-US,en;q=0.9",
+    "Content-Type": "application/json",
+    Connection: "close",
+  };
+}
+
+/**
+ * Validate API key from request
+ */
+function validateApiKey(req: Request, env: Env): boolean {
+  if (!env.API_KEY) return true; // If no API key is set, allow all requests
+
+  const apiKey = req.headers.get("Authorization");
+  return apiKey === `Bearer ${env.API_KEY}`;
+}
+
+/**
  * Get provider info for a model from the cache
  * @param modelId The model ID to look up
  * @returns Object with provider and modelName
@@ -130,13 +127,6 @@ function getProviderInfo(modelId: string): {
   provider: string;
   modelName: string;
 } {
-  // Check if we need to refresh the cache
-  if (Date.now() - modelCache.lastFetched > CACHE_REFRESH_INTERVAL) {
-    fetchAndCacheModels().catch((err) => {
-      console.error("Failed to refresh model cache:", err);
-    });
-  }
-
   // Get the model info from cache
   const modelInfo = modelCache.models.get(modelId);
 
@@ -202,7 +192,10 @@ function parseSSEResponse(responseText: string): string {
  * @param req The HTTP request
  * @returns HTTP response
  */
-async function handleChatCompletions(req: Request): Promise<Response> {
+async function handleChatCompletions(
+  req: Request,
+  env: Env,
+): Promise<Response> {
   try {
     const body = (await req.json()) as OpenAIChatRequest;
     const {
@@ -258,22 +251,22 @@ async function handleChatCompletions(req: Request): Promise<Response> {
 
     // Make request to Raycast with timeout
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
     try {
       var response = await fetch(RAYCAST_API_URL, {
         method: "POST",
-        headers: RAYCAST_HEADERS,
+        headers: getRaycastHeaders(env),
         body: requestBody,
         signal: controller.signal,
       });
-    } catch (fetchError) {
+    } catch (fetchError: any) {
       if (fetchError.name === "AbortError") {
         throw new Error("Request to Raycast API timed out after 30 seconds");
       }
       throw fetchError;
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(timeoutId);
     }
 
     console.log("Response status:", response.status);
@@ -296,7 +289,7 @@ async function handleChatCompletions(req: Request): Promise<Response> {
     } else {
       return handleNonStreamingResponse(response, model);
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error in chat completions:", error);
     return new Response(
       JSON.stringify({
@@ -454,14 +447,14 @@ async function handleNonStreamingResponse(
  * Handle models endpoint
  * @returns HTTP response with available models
  */
-async function handleModels(): Promise<Response> {
+async function handleModels(env: Env): Promise<Response> {
   try {
     // Check if we need to refresh the model cache
     if (
       modelCache.models.size === 0 ||
       Date.now() - modelCache.lastFetched > CACHE_REFRESH_INTERVAL
     ) {
-      const success = await fetchAndCacheModels();
+      const success = await fetchAndCacheModels(env);
       if (!success) {
         throw new Error("Failed to fetch models from Raycast API");
       }
@@ -481,7 +474,7 @@ async function handleModels(): Promise<Response> {
     return new Response(JSON.stringify(openaiModels), {
       headers: { "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error in models endpoint:", error);
     return new Response(
       JSON.stringify({
@@ -499,110 +492,110 @@ async function handleModels(): Promise<Response> {
   }
 }
 
-/**
- * Initialize the server
- */
-async function initServer(): Promise<void> {
-  // Load models on startup with retries
-  let retries = 3;
-  let success = false;
-
-  while (retries > 0 && !success) {
-    success = await fetchAndCacheModels();
-    if (!success) {
-      console.log(`Model fetch failed, ${retries - 1} retries remaining`);
-      retries--;
-      // Wait 2 seconds before retrying
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-  }
-
-  if (!success) {
-    console.warn(
-      "Warning: Failed to load models. The server will start anyway and try again later.",
+// Main Worker export
+export default {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
+    // Log environment variables status
+    console.log(
+      "RAYCAST_BEARER_TOKEN:",
+      env.RAYCAST_BEARER_TOKEN ? "Set" : "Not set",
     );
-  }
+    console.log(
+      "RAYCAST_SIGNATURE:",
+      env.RAYCAST_SIGNATURE ? "Set" : "Not set",
+    );
+    console.log("API_KEY:", env.API_KEY ? "Set" : "Not set");
 
-  // Create and start the server
-  serve({
-    port: PORT,
-    async fetch(req: Request): Promise<Response> {
-      const url = new URL(req.url);
-
-      // Handle CORS preflight requests
-      if (req.method === "OPTIONS") {
-        return new Response(null, {
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    // Validate required environment variables
+    if (!env.RAYCAST_BEARER_TOKEN || !env.RAYCAST_SIGNATURE) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "Server configuration error: Missing required credentials",
+            type: "server_error",
           },
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const url = new URL(request.url);
+
+    // Handle CORS preflight requests
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+      });
+    }
+
+    // Validate API key
+    if (!validateApiKey(request, env)) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "Invalid API key",
+            type: "authentication_error",
+          },
+        }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    // Log request
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${request.method} ${url.pathname}`);
+
+    try {
+      // Initialize model cache if needed
+      if (modelCache.models.size === 0) {
+        ctx.waitUntil(fetchAndCacheModels(env));
+      }
+
+      // Route requests
+      if (
+        url.pathname === "/v1/chat/completions" &&
+        request.method === "POST"
+      ) {
+        return await handleChatCompletions(request, env);
+      } else if (url.pathname === "/v1/models" && request.method === "GET") {
+        return await handleModels(env);
+      } else if (url.pathname === "/health" && request.method === "GET") {
+        return new Response(JSON.stringify({ status: "ok" }), {
+          headers: { "Content-Type": "application/json" },
         });
       }
 
-      // Validate API key
-      if (!validateApiKey(req)) {
-        return new Response(
-          JSON.stringify({
-            error: {
-              message: "Invalid API key",
-              type: "authentication_error",
-            },
-          }),
-          {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
+      // Handle unknown routes
+      return new Response("Not Found", { status: 404 });
+    } catch (error: any) {
+      console.error(`[${timestamp}] Unhandled error:`, error);
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "An unexpected error occurred",
+            type: "server_error",
+            details: error.message,
           },
-        );
-      }
-
-      // Log request
-      const timestamp = new Date().toISOString();
-      console.log(`[${timestamp}] ${req.method} ${url.pathname}`);
-
-      try {
-        // Route requests
-        if (url.pathname === "/v1/chat/completions" && req.method === "POST") {
-          return await handleChatCompletions(req);
-        } else if (url.pathname === "/v1/models" && req.method === "GET") {
-          return await handleModels();
-        } else if (url.pathname === "/health" && req.method === "GET") {
-          return new Response(JSON.stringify({ status: "ok" }), {
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-
-        // Handle unknown routes
-        return new Response("Not Found", { status: 404 });
-      } catch (error) {
-        console.error(`[${timestamp}] Unhandled error:`, error);
-        return new Response(
-          JSON.stringify({
-            error: {
-              message: "An unexpected error occurred",
-              type: "server_error",
-              details: error.message,
-            },
-          }),
-          {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-    },
-  });
-
-  console.log(
-    `Raycast to OpenAI relay server running on http://localhost:${PORT}`,
-  );
-  console.log(
-    `Use this as your OpenAI API base URL: http://localhost:${PORT}/v1`,
-  );
-}
-
-// Start the server
-initServer().catch((err) => {
-  console.error("Failed to initialize server:", err);
-  process.exit(1);
-});
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+  },
+} satisfies ExportedHandler<Env>;

@@ -249,25 +249,11 @@ async function handleChatCompletions(
     const requestBody = JSON.stringify(raycastRequest);
     console.log("Sending request to Raycast:", requestBody);
 
-    // Make request to Raycast with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-    try {
-      var response = await fetch(RAYCAST_API_URL, {
-        method: "POST",
-        headers: getRaycastHeaders(env),
-        body: requestBody,
-        signal: controller.signal,
-      });
-    } catch (fetchError: any) {
-      if (fetchError.name === "AbortError") {
-        throw new Error("Request to Raycast API timed out after 30 seconds");
-      }
-      throw fetchError;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const response = await fetch(RAYCAST_API_URL, {
+      method: "POST",
+      headers: getRaycastHeaders(env),
+      body: requestBody,
+    });
 
     console.log("Response status:", response.status);
 

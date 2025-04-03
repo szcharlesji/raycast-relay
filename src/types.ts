@@ -1,21 +1,14 @@
 type RaycastModelInfo = {
   id: string;
-  name: string;
   model: string;
   provider: string;
-  provider_name: string;
-  description?: string;
-  features?: string[];
 };
 export type RaycastModelsResponse = {
   models: RaycastModelInfo[];
-  default_models?: Record<string, string>;
 };
 export type ModelCacheEntry = {
+  model: string;
   provider: string;
-  modelName: string;
-  displayName: string;
-  ownedBy: string;
 };
 export type ModelCache = {
   models: Map<string, ModelCacheEntry>;

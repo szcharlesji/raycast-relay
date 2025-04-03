@@ -16,7 +16,7 @@ This project provides a relay server that allows you to use Raycast AI models th
 - [Node.js](https://nodejs.org/) (v18 or later)
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
 - Cloudflare account
-- Raycast API credentials (Bearer token and signature)
+- Raycast API credential (Bearer token)
 
 ### Setup
 
@@ -32,7 +32,6 @@ npm install
 ```bash
 # Set your Raycast credentials as secrets
 wrangler secret put RAYCAST_BEARER_TOKEN
-wrangler secret put RAYCAST_SIGNATURE
 
 # Optionally set an API key for authentication
 # Edit wrangler.jsonc and update the API_KEY value or set it as a secret
@@ -80,4 +79,3 @@ Authorization: Bearer your-api-key
 ## License
 
 MIT
-

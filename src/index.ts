@@ -30,7 +30,6 @@ const modelCache: ModelCache = {
  */
 export interface Env {
   RAYCAST_BEARER_TOKEN: string;
-  RAYCAST_SIGNATURE: string;
   API_KEY?: string;
 }
 
@@ -98,7 +97,6 @@ async function fetchAndCacheModels(env: Env): Promise<boolean> {
 function getRaycastHeaders(env: Env) {
   return {
     Host: "backend.raycast.com",
-    "X-Raycast-Signature": env.RAYCAST_SIGNATURE,
     Accept: "application/json",
     "User-Agent": USER_AGENT,
     Authorization: `Bearer ${env.RAYCAST_BEARER_TOKEN}`,
@@ -490,14 +488,10 @@ export default {
       "RAYCAST_BEARER_TOKEN:",
       env.RAYCAST_BEARER_TOKEN ? "Set" : "Not set",
     );
-    console.log(
-      "RAYCAST_SIGNATURE:",
-      env.RAYCAST_SIGNATURE ? "Set" : "Not set",
-    );
     console.log("API_KEY:", env.API_KEY ? "Set" : "Not set");
 
     // Validate required environment variables
-    if (!env.RAYCAST_BEARER_TOKEN || !env.RAYCAST_SIGNATURE) {
+    if (!env.RAYCAST_BEARER_TOKEN) {
       return new Response(
         JSON.stringify({
           error: {

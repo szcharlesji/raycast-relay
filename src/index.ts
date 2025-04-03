@@ -16,7 +16,8 @@ const RAYCAST_API_URL =
   "https://backend.raycast.com/api/v1/ai/chat_completions";
 const RAYCAST_MODELS_URL = "https://backend.raycast.com/api/v1/ai/models";
 const USER_AGENT = "Raycast/1.94.2 (macOS Version 15.3.2 (Build 24D81))";
-const DEFAULT_MODEL = "anthropic-claude-3-7-sonnet-latest";
+const DEFAULT_PROVIDER = "anthropic";
+const DEFAULT_MODEL = "claude-3-7-sonnet-latest";
 const CACHE_REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hour
 
 // Cache for model mappings
@@ -58,14 +59,18 @@ async function fetchAndCacheModels(env: Env): Promise<boolean> {
 
     let raycastModels: RaycastModelsResponse;
     try {
-      raycastModels = JSON.parse(responseText);
+      const parsedResponse = JSON.parse(responseText);
+      raycastModels = {
+        models: parsedResponse.models.map((model: any) => ({
+          id: model.id,
+          provider: model.provider,
+          model: model.model,
+        })),
+      } as RaycastModelsResponse;
+      console.log("Parsed models response:", raycastModels);
     } catch (e) {
       console.error("Failed to parse models response:", e);
       throw new Error(`Failed to parse models response: ${e}`);
-    }
-
-    if (!raycastModels.models || !Array.isArray(raycastModels.models)) {
-      throw new Error("Invalid models response format from Raycast API");
     }
 
     // Clear the current cache
@@ -75,9 +80,7 @@ async function fetchAndCacheModels(env: Env): Promise<boolean> {
     for (const model of raycastModels.models) {
       modelCache.models.set(model.id, {
         provider: model.provider,
-        modelName: model.model,
-        displayName: model.name,
-        ownedBy: model.provider_name,
+        model: model.model,
       });
     }
 
@@ -131,18 +134,14 @@ function getProviderInfo(modelId: string): {
   if (modelInfo) {
     return {
       provider: modelInfo.provider,
-      modelName: modelInfo.modelName,
+      modelName: modelInfo.model,
+    };
+  } else {
+    return {
+      provider: DEFAULT_PROVIDER,
+      modelName: DEFAULT_MODEL,
     };
   }
-
-  // Default if model not found
-  console.warn(
-    `Model ${modelId} not found in cache. Defaulting to anthropic provider.`,
-  );
-  return {
-    provider: "anthropic",
-    modelName: modelId,
-  };
 }
 
 /**
@@ -447,11 +446,11 @@ async function handleModels(env: Env): Promise<Response> {
     // Convert cached models to OpenAI format
     const openaiModels = {
       object: "list",
-      data: Array.from(modelCache.models.entries()).map(([id, info]) => ({
-        id,
+      data: Array.from(modelCache.models.entries()).map(([, info]) => ({
+        id: info.model,
         object: "model",
         created: Math.floor(Date.now() / 1000),
-        owned_by: info.ownedBy,
+        owned_by: info.provider,
       })),
     };
 

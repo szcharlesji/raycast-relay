@@ -130,6 +130,7 @@ function getProviderInfo(modelId: string): {
 } {
   // Get the model info from cache
   const modelInfo = modelCache.models.get(modelId);
+  console.log("Model info from cache:", modelInfo);
 
   if (modelInfo) {
     return {
@@ -238,8 +239,8 @@ async function handleChatCompletions(
       temperature: temperature,
       thread_id: threadId,
       tools: [
-        { name: "web_search", type: "remote_tool" },
-        { name: "search_images", type: "remote_tool" },
+        // { name: "web_search", type: "remote_tool" },
+        // { name: "search_images", type: "remote_tool" },
       ],
     };
 

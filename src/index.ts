@@ -1,8 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
 import type {
-  ModelCache,
-  ModelCacheEntry,
-  RaycastModelsResponse,
   OpenAIMessage,
   RaycastMessage,
   RaycastSSEData,
@@ -18,13 +15,6 @@ const RAYCAST_MODELS_URL = "https://backend.raycast.com/api/v1/ai/models";
 const USER_AGENT = "Raycast/1.94.2 (macOS Version 15.3.2 (Build 24D81))";
 const DEFAULT_PROVIDER = "anthropic";
 const DEFAULT_MODEL = "claude-3-7-sonnet-latest";
-const CACHE_REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hour
-
-// Cache for model mappings
-const modelCache: ModelCache = {
-  models: new Map<string, ModelCacheEntry>(),
-  lastFetched: 0,
-};
 
 /**
  * Environment variables interface for Cloudflare Workers
@@ -35,10 +25,12 @@ export interface Env {
 }
 
 /**
- * Fetches model information from Raycast API and updates the cache
- * @returns Promise<boolean> true if successful, false otherwise
+ * Fetches model information from Raycast API
+ * @returns Promise with model information
  */
-async function fetchAndCacheModels(env: Env): Promise<boolean> {
+async function fetchModels(
+  env: Env,
+): Promise<Map<string, { provider: string; model: string }>> {
   try {
     console.log("Fetching models from Raycast API...");
 
@@ -57,40 +49,22 @@ async function fetchAndCacheModels(env: Env): Promise<boolean> {
       throw new Error("Empty response from Raycast API");
     }
 
-    let raycastModels: RaycastModelsResponse;
-    try {
-      const parsedResponse = JSON.parse(responseText);
-      raycastModels = {
-        models: parsedResponse.models.map((model: any) => ({
-          id: model.id,
-          provider: model.provider,
-          model: model.model,
-        })),
-      } as RaycastModelsResponse;
-      console.log("Parsed models response:", raycastModels);
-    } catch (e) {
-      console.error("Failed to parse models response:", e);
-      throw new Error(`Failed to parse models response: ${e}`);
-    }
+    const parsedResponse = JSON.parse(responseText);
+    const models = new Map();
 
-    // Clear the current cache
-    modelCache.models.clear();
-
-    // Populate the cache with model info
-    for (const model of raycastModels.models) {
-      modelCache.models.set(model.model, {
+    for (const model of parsedResponse.models) {
+      models.set(model.model, {
         provider: model.provider,
         model: model.model,
       });
     }
 
-    modelCache.lastFetched = Date.now();
-    console.log(`Cached ${modelCache.models.size} models from Raycast API`);
-
-    return true;
+    console.log(`Fetched ${models.size} models from Raycast API`);
+    return models;
   } catch (error) {
     console.error("Error fetching models:", error);
-    return false;
+    // Return empty map on error, will use defaults
+    return new Map();
   }
 }
 
@@ -120,35 +94,34 @@ function validateApiKey(req: Request, env: Env): boolean {
 }
 
 /**
- * Get provider info for a model from the cache
+ * Get provider info for a model
  * @param modelId The model ID to look up
+ * @param models Map of available models
  * @returns Object with provider and modelName
  */
-function getProviderInfo(modelId: string): {
-  provider: string;
-  modelName: string;
-} {
-  // Get the model info from cache
-  const modelInfo = modelCache.models.get(modelId);
-  console.log("Model info from cache:", modelInfo);
+function getProviderInfo(
+  modelId: string,
+  models: Map<string, { provider: string; model: string }>,
+): { provider: string; modelName: string } {
+  // Get the model info
+  const modelInfo = models.get(modelId);
 
-  // if (modelInfo) {
-  return {
-    provider: modelInfo.provider,
-    modelName: modelInfo.model,
-  };
-  // } else {
-  //   return {
-  //     provider: DEFAULT_PROVIDER,
-  //     modelName: DEFAULT_MODEL,
-  //   };
-  // }
+  if (modelInfo) {
+    return {
+      provider: modelInfo.provider,
+      modelName: modelInfo.model,
+    };
+  } else {
+    // Fallback to defaults
+    return {
+      provider: DEFAULT_PROVIDER,
+      modelName: DEFAULT_MODEL,
+    };
+  }
 }
 
 /**
  * Convert OpenAI messages format to Raycast format
- * @param openaiMessages Array of OpenAI message objects
- * @returns Array of Raycast message objects
  */
 function convertMessages(openaiMessages: OpenAIMessage[]): RaycastMessage[] {
   return openaiMessages.map((msg) => ({
@@ -161,8 +134,6 @@ function convertMessages(openaiMessages: OpenAIMessage[]): RaycastMessage[] {
 
 /**
  * Parse SSE response from Raycast into a single text
- * @param responseText The raw SSE response from Raycast
- * @returns The combined text from all SSE chunks
  */
 function parseSSEResponse(responseText: string): string {
   const lines = responseText.split("\n");
@@ -187,8 +158,6 @@ function parseSSEResponse(responseText: string): string {
 
 /**
  * Handle OpenAI chat completions endpoint
- * @param req The HTTP request
- * @returns HTTP response
  */
 async function handleChatCompletions(
   req: Request,
@@ -218,8 +187,11 @@ async function handleChatCompletions(
       );
     }
 
-    // Get provider info from the model cache
-    const { provider, modelName } = getProviderInfo(model);
+    // Fetch models directly before each request
+    const models = await fetchModels(env);
+
+    // Get provider info from the fetched models
+    const { provider, modelName } = getProviderInfo(model, models);
 
     console.log(`Using provider: ${provider}, model: ${modelName}`);
 
@@ -293,9 +265,6 @@ async function handleChatCompletions(
 
 /**
  * Handle streaming response from Raycast
- * @param response The Raycast API response
- * @param modelId The original model ID requested
- * @returns Streaming response in OpenAI format
  */
 function handleStreamingResponse(
   response: Response,
@@ -384,9 +353,6 @@ function handleStreamingResponse(
 
 /**
  * Handle non-streaming response from Raycast
- * @param response The Raycast API response
- * @param modelId The original model ID requested
- * @returns Response in OpenAI format
  */
 async function handleNonStreamingResponse(
   response: Response,
@@ -429,25 +395,16 @@ async function handleNonStreamingResponse(
 
 /**
  * Handle models endpoint
- * @returns HTTP response with available models
  */
 async function handleModels(env: Env): Promise<Response> {
   try {
-    // Check if we need to refresh the model cache
-    if (
-      modelCache.models.size === 0 ||
-      Date.now() - modelCache.lastFetched > CACHE_REFRESH_INTERVAL
-    ) {
-      const success = await fetchAndCacheModels(env);
-      if (!success) {
-        throw new Error("Failed to fetch models from Raycast API");
-      }
-    }
+    // Fetch models directly
+    const models = await fetchModels(env);
 
-    // Convert cached models to OpenAI format
+    // Convert models to OpenAI format
     const openaiModels = {
       object: "list",
-      data: Array.from(modelCache.models.entries()).map(([, info]) => ({
+      data: Array.from(models.entries()).map(([, info]) => ({
         id: info.model,
         object: "model",
         created: Math.floor(Date.now() / 1000),
@@ -540,11 +497,6 @@ export default {
     console.log(`[${timestamp}] ${request.method} ${url.pathname}`);
 
     try {
-      // Initialize model cache if needed
-      if (modelCache.models.size === 0) {
-        ctx.waitUntil(fetchAndCacheModels(env));
-      }
-
       // Route requests
       if (
         url.pathname === "/v1/chat/completions" &&

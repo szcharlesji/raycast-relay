@@ -1,18 +1,6 @@
-type RaycastModelInfo = {
-  id: string;
-  model: string;
-  provider: string;
-};
-export type RaycastModelsResponse = {
-  models: RaycastModelInfo[];
-};
 export type ModelCacheEntry = {
   model: string;
   provider: string;
-};
-export type ModelCache = {
-  models: Map<string, ModelCacheEntry>;
-  lastFetched: number;
 };
 export type OpenAIMessage = {
   role: "user" | "assistant" | "system";

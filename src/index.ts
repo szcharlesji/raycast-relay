@@ -78,7 +78,7 @@ async function fetchAndCacheModels(env: Env): Promise<boolean> {
 
     // Populate the cache with model info
     for (const model of raycastModels.models) {
-      modelCache.models.set(model.id, {
+      modelCache.models.set(model.model, {
         provider: model.provider,
         model: model.model,
       });
@@ -132,17 +132,17 @@ function getProviderInfo(modelId: string): {
   const modelInfo = modelCache.models.get(modelId);
   console.log("Model info from cache:", modelInfo);
 
-  if (modelInfo) {
-    return {
-      provider: modelInfo.provider,
-      modelName: modelInfo.model,
-    };
-  } else {
-    return {
-      provider: DEFAULT_PROVIDER,
-      modelName: DEFAULT_MODEL,
-    };
-  }
+  // if (modelInfo) {
+  return {
+    provider: modelInfo.provider,
+    modelName: modelInfo.model,
+  };
+  // } else {
+  //   return {
+  //     provider: DEFAULT_PROVIDER,
+  //     modelName: DEFAULT_MODEL,
+  //   };
+  // }
 }
 
 /**

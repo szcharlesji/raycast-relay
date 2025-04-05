@@ -40,7 +40,7 @@ npm install -g wrangler
 # Set your Raycast credentials as secrets
 wrangler secret put RAYCAST_BEARER_TOKEN
 
-# Optionally set an API key for authentication
+# Optionally set an API key for authentication, if you want to use it with cursor, follow the cursor setup
 wrangler secret put API_KEY
 ```
 

@@ -380,14 +380,14 @@ async function handleNonStreamingResponse(
           refusal: null,
           annotations: [],
         },
-        finish_reason: "stop",
         logprobs: null,
+        finish_reason: "length",
       },
     ],
     usage: {
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      total_tokens: 0,
+      prompt_tokens: 10,
+      completion_tokens: 10,
+      total_tokens: 20,
       prompt_tokens_details: {
         cached_tokens: 0,
         audio_tokens: 0,
@@ -398,9 +398,9 @@ async function handleNonStreamingResponse(
         accepted_prediction_tokens: 0,
         rejected_prediction_tokens: 0,
       },
-      service_tier: "default",
-      system_fingerprint: "fp_b376dfbbd5",
     },
+    service_tier: "default",
+    system_fingerprint: "fp_b376dfbbd5",
   };
 
   return new Response(JSON.stringify(openaiResponse, null, 2) + "\n", {

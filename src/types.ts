@@ -62,9 +62,9 @@ export type OpenAIChatResponse = {
       accepted_prediction_tokens: number;
       rejected_prediction_tokens: number;
     };
-    service_tier: string;
-    system_fingerprint: string;
   };
+  service_tier: string;
+  system_fingerprint: string;
 };
 export type RaycastSSEData = {
   text?: string;

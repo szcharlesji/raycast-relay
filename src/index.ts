@@ -388,7 +388,7 @@ async function handleNonStreamingResponse(
     },
   };
 
-  return new Response(JSON.stringify(openaiResponse), {
+  return new Response(JSON.stringify(openaiResponse, null, 2) + '\n', {
     headers: { "Content-Type": "application/json" },
   });
 }

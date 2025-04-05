@@ -377,18 +377,33 @@ async function handleNonStreamingResponse(
         message: {
           role: "assistant",
           content: fullText,
+          refusal: null,
+          annotations: [],
         },
         finish_reason: "stop",
+        logprobs: null,
       },
     ],
     usage: {
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
+      prompt_tokens_details: {
+        cached_tokens: 0,
+        audio_tokens: 0,
+      },
+      completion_tokens_details: {
+        reasoning_tokens: 0,
+        audio_tokens: 0,
+        accepted_prediction_tokens: 0,
+        rejected_prediction_tokens: 0,
+      },
+      service_tier: "default",
+      system_fingerprint: "fp_b376dfbbd5",
     },
   };
 
-  return new Response(JSON.stringify(openaiResponse, null, 2) + '\n', {
+  return new Response(JSON.stringify(openaiResponse, null, 2) + "\n", {
     headers: { "Content-Type": "application/json" },
   });
 }

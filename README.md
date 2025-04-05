@@ -3,7 +3,7 @@
 - [Setup](#setup)
 - [Usage](#usage)
 - [Use with Cursor](#use-with-cursor)
-- [Available Models](#available_models)
+- [Available Models](#available-models)
 
 This project provides a relay server that allows you to use Raycast AI models through an OpenAI-compatible API interface, deployed as a Cloudflare Worker.
 

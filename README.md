@@ -92,12 +92,15 @@ In order to use your relayed API endpoint in cursor:
 
 Here's a list of all the model IDs:
 
-- ray1
-- ray1-mini
+- gpt-4.1
+- gpt-4.1-mini
+- gpt-4.1-nano
 - gpt-4
 - gpt-4-turbo
 - gpt-4o
 - gpt-4o-mini
+- o3
+- o4-mini
 - o1-preview
 - o1-mini
 - o1-2024-12-17
@@ -105,11 +108,13 @@ Here's a list of all the model IDs:
 - claude-3-5-haiku-latest
 - claude-3-5-sonnet-latest
 - claude-3-7-sonnet-latest
+- claude-3-7-sonnet-latest-reasoning
 - claude-3-opus-20240229
 - sonar
 - sonar-pro
 - sonar-reasoning
 - sonar-reasoning-pro
+- meta-llama/llama-4-scout-17b-16e-instruct
 - llama-3.3-70b-versatile
 - llama-3.1-8b-instant
 - llama3-70b-8192
@@ -119,11 +124,16 @@ Here's a list of all the model IDs:
 - mistral-small-latest
 - codestral-latest
 - deepseek-r1-distill-llama-70b
+- qwen-2.5-32b
+- gemini-2.5-pro-preview-03-25
 - gemini-1.5-flash
 - gemini-1.5-pro
 - gemini-2.0-flash
 - gemini-2.0-flash-thinking-exp-01-21
 - deepseek-ai/DeepSeek-R1
+- deepseek-ai/DeepSeek-V3
+- grok-3-fast-beta
+- grok-3-mini-fast-beta
 - grok-2-latest
 
 ## License

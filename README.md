@@ -15,10 +15,17 @@ This project provides a relay server that allows you to use Raycast AI models th
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
 - Cloudflare account
 - Raycast API credential (Bearer token)
+- HTTP Debug Tool like Proxyman or Charles on macOS
 
 ### Setup
 
-1. Clone this repository
+1. Get your Raycast AI Token
+
+Proxyman: Add raycast to your SSL proxying list, resend a request to AI. You will see a request like in the photo below: Copy the API key after Authorization Bearer.
+
+![proxyman](/proxyman.jpeg)
+
+2. Clone this repository
 
 ```bash
 git clone https://github.com/szcharlesji/raycast-relay

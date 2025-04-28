@@ -23,7 +23,7 @@ This project provides a relay server that allows you to use Raycast AI models th
 
 Proxyman: Add raycast to your SSL proxying list, resend a request to AI. You will see a request like in the photo below: Copy the API key after Authorization Bearer.
 
-![proxyman](/proxyman.jpeg)
+![proxyman](/img/proxyman.jpeg)
 
 2. Clone this repository
 

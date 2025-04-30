@@ -12,17 +12,16 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.7.8",
     "@eslint/eslintrc": "^3.3.1",
-    "@eslint/js": "^9.23.0",
-    "@types/node": "^22.13.14",
+    "@eslint/js": "^9.25.1",
+    "@types/node": "^22.15.3",
     "jiti": "^2.4.2",
-    "typescript": "^5.5.2",
-    "typescript-eslint": "^8.28.0",
-    "vitest": "~3.0.7",
-    "wrangler": "^4.5.0"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.31.1",
+    "vitest": "~3.0.9",
+    "wrangler": "^4.14.0"
   },
   "dependencies": {
     "@types/uuid": "^10.0.0",
     "uuid": "^11.1.0"
-  },
-  "packageManager": "pnpm@10.9.0+sha512.0486e394640d3c1fb3c9d43d49cf92879ff74f8516959c235308f5a8f62e2e19528a65cdc2a3058f587cde71eba3d5b56327c8c33a97e4c4051ca48a10ca2d5f"
+  }
 }

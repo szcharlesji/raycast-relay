@@ -9,6 +9,12 @@ This project provides a relay server that allows you to use Raycast AI models th
 
 ## Deployment
 
+### One-Click Deployment (Recommended)
+
+Get your Raycast AI Token in the step 1 below and add `API_KEY` as an environment variable. You can optionally add a `API_KEY`, `ADVANCED`, `INCLUDE_DEPRECATED`. Follow the guide below
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/szcharlesji/raycast-relay)
+
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/)

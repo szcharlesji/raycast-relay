@@ -1,7 +1,8 @@
-export type ModelCacheEntry = {
-  model: string;
+export type ModelInfo = {
   provider: string;
+  model: string;
 };
+
 export type OpenAIMessage = {
   role: "user" | "assistant" | "system";
   content: string;
@@ -30,7 +31,7 @@ export type OpenAIChatRequest = {
   model: string;
   temperature?: number;
   stream?: boolean;
-  [key: string]: any; // For other parameters
+  [key: string]: any;
 };
 export type OpenAIChatResponse = {
   id: string;
@@ -69,4 +70,18 @@ export type OpenAIChatResponse = {
 export type RaycastSSEData = {
   text?: string;
   finish_reason?: string | null;
+};
+
+export type RaycastRawModelData = {
+  id: string;
+  model: string;
+  name: string;
+  provider: string;
+  requires_better_ai: boolean;
+  [key: string]: any;
+};
+
+export type RaycastModelsApiResponse = {
+  models: RaycastRawModelData[];
+  default_models: Record<string, string>;
 };

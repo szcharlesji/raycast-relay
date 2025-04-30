@@ -49,6 +49,9 @@ wrangler secret put RAYCAST_BEARER_TOKEN
 
 # Optionally set an API key for authentication, if you want to use it with cursor, follow the cursor setup
 wrangler secret put API_KEY
+
+# Optionally set to filter out the advanced AI options if you don't have the subscription.
+wrangler secret put ADVANCED
 ```
 
 4. Deploy to Cloudflare Workers:

@@ -52,6 +52,9 @@ wrangler secret put API_KEY
 
 # Optionally set to filter out the advanced AI options if you don't have the subscription.
 wrangler secret put ADVANCED
+
+# Optionall set to include deprecated models
+wrangler secret put INCLUDE_DEPRECATED
 ```
 
 4. Deploy to Cloudflare Workers:

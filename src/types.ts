@@ -78,6 +78,7 @@ export type RaycastRawModelData = {
   name: string;
   provider: string;
   requires_better_ai: boolean;
+  availability: string;
   [key: string]: any;
 };
 

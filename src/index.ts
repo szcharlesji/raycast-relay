@@ -183,9 +183,14 @@ async function handleChatCompletions(
   env: Env,
 ): Promise<Response> {
   try {
-    const body = (await req.json()) as OpenAIChatRequest;
+    const b = (await req.json());
+    console.log(b);
+
+    //const body = (await req.json()) as OpenAIChatRequest;
+    const body = b as OpenAIChatRequest;
     const {
       messages,
+      tools,
       model: requestedModelId = DEFAULT_MODEL_ID,
       temperature = 0.5,
       stream = false,
@@ -224,6 +229,40 @@ async function handleChatCompletions(
       );
     }
 
+    const convertedTools = [];
+    if (tools) {
+      tools.forEach((tool) => {
+        const convertedTool = {function: tool, type: "local_tool"};
+        convertedTools.push(convertedTool);
+      });
+    }
+
+    // const native_tool = {
+    //   "function": {
+    //     "description": "Gets weather for a specific location.\n\nFormat the weather in a nice and user-friendly way. Add emojis when appropriate. Don't overwhelm the user with detailed information if they don't need it.",
+    //     "name": "weather-get-weather",
+    //     "parameters": {
+    //       "properties": {
+    //         "location": {
+    //           "description": "Location to get the weather from",
+    //           "type": "string"
+    //         },
+    //         "query": {
+    //           "description": "Type of weather query",
+    //           "enum": ["current", "hourly", "daily"],
+    //           "type": "string"
+    //         }
+    //       },
+    //       "required": ["location", "query"],
+    //       "type": "object"
+    //     }
+    //   },
+    //   "type": "local_tool"
+    // };
+    // convertedTools.push(native_tool);
+    
+    console.log(`These are the tools:`, convertedTools);
+
     console.log(
       `Relaying request for ${requestedModelId} to Raycast ${provider}/${internalModelName}`,
     );
@@ -241,8 +280,12 @@ async function handleChatCompletions(
       locale: "en-US",
       source: "ai_chat",
       thread_id: uuidv4(),
-      tools: [],
+      tools: convertedTools,
     };
+
+    if (convertedTools.length > 0) {
+      raycastRequest.tool_choice = "auto";
+    }
 
     const raycastResponse = await fetch(RAYCAST_API_URL, {
       method: "POST",
@@ -387,6 +430,8 @@ async function handleNonStreamingResponse(
 ): Promise<Response> {
   const responseText = await response.text();
   const fullText = parseSSEResponse(responseText);
+
+  console.log(responseText);
 
   const openaiResponse: OpenAIChatResponse = {
     id: `chatcmpl-${uuidv4()}`,

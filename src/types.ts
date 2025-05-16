@@ -25,6 +25,7 @@ export type RaycastChatRequest = {
   temperature: number;
   thread_id: string;
   tools: { name: string; type: string }[];
+  tool_choice?: string; 
 };
 export type OpenAIChatRequest = {
   messages: OpenAIMessage[];

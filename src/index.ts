@@ -156,23 +156,42 @@ function convertMessages(openaiMessages: OpenAIMessage[]): {
         content: { text: msg.content ?? null }, // Text can be null if there are tool_calls
       };
       if (msg.tool_calls && msg.tool_calls.length > 0) {
-        assistantMessage.tool_calls = msg.tool_calls.map(tc => ({
-          id: tc.id,
-          name: tc.function.name,
-          arguments: tc.function.arguments,
-        }));
+        assistantMessage.tool_calls = msg.tool_calls.map(tc => {
+          let parsedArgs: object = {};
+          try {
+            // OpenAI arguments are a JSON string, Raycast example shows an object
+            parsedArgs = JSON.parse(tc.function.arguments);
+          } catch (e) {
+            console.error(
+              `Failed to parse tool call arguments string into object: "${tc.function.arguments}". Error: ${e}. Sending as-is or empty.`,
+            );
+            // Fallback or error handling for unparsable arguments.
+            // For now, sending an empty object if parsing fails, to match 'object' type.
+            // A more robust solution might involve logging this and deciding on a consistent fallback.
+            parsedArgs = {}; // Default to empty object if parsing fails to maintain type integrity
+          }
+          return {
+            id: tc.id,
+            type: "function", // Add type as per Raycast example
+            function: { // Nest name and arguments under 'function'
+              name: tc.function.name,
+              arguments: parsedArgs, // Use parsed arguments object
+            },
+          };
+        });
         // As per OpenAI spec, content should be null when tool_calls are present.
         assistantMessage.content.text = null;
       }
       raycastMessages.push(assistantMessage);
     } else if (msg.role === "tool") {
-      // Represent tool responses as an assistant message containing the tool output.
-      const toolResponseText = `Tool Call ID: ${msg.tool_call_id}\nFunction Name: ${msg.name}\nResult: ${msg.content ?? ""}`;
+      // Convert OpenAI tool response to Raycast tool message format
       raycastMessages.push({
-        author: "assistant", // Map to assistant for Raycast history
+        author: "tool",
         content: {
-          text: toolResponseText,
+          text: msg.content ?? "", // Tool output string
         },
+        name: msg.name, // Function name from OpenAI tool message
+        tool_call_id: msg.tool_call_id, // Tool call ID from OpenAI tool message
       });
     }
     // Other roles or subsequent system messages are ignored
@@ -351,12 +370,7 @@ async function handleChatCompletions(
       `  The user has the following system preferences:\n` +
       `${userPrefsDetails}\n` +
       `  Use the system preferences to format your answers accordingly.\n` +
-      `</user-preferences>\n\n` +
-      `<extension-instructions>\n` +
-      `  The following extensions have some extra instructions:\n` +
-      `  No specific extension instructions provided for this request.\n` + // Placeholder text
-      `  Follow the instructions whenever you use a tool of the extension.\n` +
-      `</extension-instructions>`;
+      `</user-preferences>\n`; // Removed <extension-instructions> to match example
 
     const raycastRequest: RaycastChatRequest = {
       model: internalModelName,

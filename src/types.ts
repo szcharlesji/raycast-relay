@@ -35,15 +35,35 @@ export type RaycastChatRequest = {
   system_instruction: string;
   temperature: number;
   thread_id: string;
-  tools: { name: string; type: string }[];
-  tool_choice?: string; 
+  tools: RaycastTool[]; // Use the new RaycastTool union type
+  tool_choice?: string;
 };
+
+// Defines the structure of the 'function' part of an OpenAI tool
+export type OpenAIFunction = {
+  name: string;
+  description?: string;
+  parameters: object; // Typically a JSON schema object
+};
+
+// Defines an OpenAI tool, specifically for functions
+export type OpenAITool = {
+  type: "function";
+  function: OpenAIFunction;
+};
+
+// Defines the possible structures for tools in a Raycast request
+export type RaycastTool =
+  | { name: string; type: "remote_tool" | string } // For named tools like web_search
+  | { function: OpenAIFunction; type: "local_tool" }; // For function tools passed by definition
+
 export type OpenAIChatRequest = {
   messages: OpenAIMessage[];
   model: string;
   temperature?: number;
   stream?: boolean;
-  [key: string]: any;
+  tools?: OpenAITool[]; // Explicitly define the tools property
+  [key: string]: any; // Keep for other potential fields not strictly typed
 };
 export type OpenAIChatResponse = {
   id: string;

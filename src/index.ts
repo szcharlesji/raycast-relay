@@ -395,6 +395,7 @@ function handleStreamingResponse(
             if (dataContent === "[DONE]") continue;
 
             try {
+              console.log("Received Raycast SSE data chunk:", dataContent); // Log raw Raycast SSE data chunk
               const jsonData: RaycastSSEData = JSON.parse(dataContent);
               const delta: any = {}; // Delta for the current OpenAI chunk
 

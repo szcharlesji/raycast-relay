@@ -263,8 +263,14 @@ async function handleChatCompletions(
     const convertedTools = [];
     if (tools) {
       tools.forEach((tool) => {
-        const convertedTool = {function: tool, type: "local_tool"};
-        convertedTools.push(convertedTool);
+        // Ensure 'tool' is an OpenAI tool object with type "function" and a function definition
+        if (tool.type === "function" && tool.function) {
+          const convertedTool = { function: tool.function, type: "local_tool" };
+          convertedTools.push(convertedTool);
+        } else {
+          // Log or handle other tool types if necessary, or simply skip them
+          console.warn(`Skipping tool with unhandled type or missing function definition: ${tool.type || 'unknown type'}`, tool);
+        }
       });
     }
 

@@ -330,18 +330,30 @@ async function handleChatCompletions(
 
     const { raycastMessages, systemInstruction } = convertMessages(messages);
 
+    const currentDate = new Date().toISOString();
+    const locale = "en-US"; // Consistent locale
+
+    // Construct additional_system_instructions similar to Raycast client example
+    const additionalSystemInstructions =
+      `<user-preferences>` +
+        `<Locale>${locale}</Locale>` +
+        `<CurrentDate>${currentDate.substring(0, 10)}</CurrentDate>` + // YYYY-MM-DD format often used here
+      `</user-preferences>` +
+      `<extension-instructions></extension-instructions>`; // Empty for now, as we don't have specific extension instructions
+
     const raycastRequest: RaycastChatRequest = {
       model: internalModelName,
       provider,
       messages: raycastMessages,
       system_instruction: systemInstruction,
       temperature,
-      additional_system_instructions: "",
+      additional_system_instructions: additionalSystemInstructions,
       debug: false,
-      locale: "en-US",
+      locale: locale,
       source: "ai_chat",
       thread_id: uuidv4(),
       tools: convertedTools,
+      current_date: currentDate, // Full ISO string for current_date field
     };
 
     if (convertedTools.length > 0) {

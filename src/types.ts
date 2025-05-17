@@ -50,6 +50,7 @@ export type RaycastChatRequest = {
   thread_id: string;
   tools: RaycastTool[]; // Use the new RaycastTool union type
   tool_choice?: string;
+  current_date?: string; // Added current_date
 };
 
 // Defines the structure of the 'function' part of an OpenAI tool

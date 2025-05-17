@@ -144,14 +144,38 @@ function convertMessages(openaiMessages: OpenAIMessage[]): {
 
   openaiMessages.forEach((msg, index) => {
     if (msg.role === "system" && index === 0) {
-      systemInstruction = msg.content;
-    } else if (msg.role === "user" || msg.role === "assistant") {
+      systemInstruction = msg.content ?? "markdown"; // Use content if available, else default
+    } else if (msg.role === "user") {
       raycastMessages.push({
-        author: msg.role,
-        content: { text: msg.content },
+        author: "user",
+        content: { text: msg.content ?? "" }, // Ensure text is not null
+      });
+    } else if (msg.role === "assistant") {
+      const assistantMessage: RaycastMessage = {
+        author: "assistant",
+        content: { text: msg.content ?? null }, // Text can be null if there are tool_calls
+      };
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
+        assistantMessage.tool_calls = msg.tool_calls.map(tc => ({
+          id: tc.id,
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        }));
+        // As per OpenAI spec, content should be null when tool_calls are present.
+        assistantMessage.content.text = null;
+      }
+      raycastMessages.push(assistantMessage);
+    } else if (msg.role === "tool") {
+      // Represent tool responses as an assistant message containing the tool output.
+      const toolResponseText = `Tool Call ID: ${msg.tool_call_id}\nFunction Name: ${msg.name}\nResult: ${msg.content ?? ""}`;
+      raycastMessages.push({
+        author: "assistant", // Map to assistant for Raycast history
+        content: {
+          text: toolResponseText,
+        },
       });
     }
-    // Ignore other roles or subsequent system messages for now
+    // Other roles or subsequent system messages are ignored
   });
 
   return { raycastMessages, systemInstruction };

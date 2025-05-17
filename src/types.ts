@@ -4,7 +4,7 @@ export type ModelInfo = {
 };
 
 export type OpenAIMessage = {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "tool"; // Added "tool"
   content: string | null; // Allow content to be null for tool_calls
   tool_calls?: Array<{ // Add tool_calls for OpenAI
     id: string;
@@ -14,15 +14,28 @@ export type OpenAIMessage = {
       arguments: string;
     };
   }>;
+  // Fields for role: "tool"
+  tool_call_id?: string;
+  name?: string; // Function name for role "tool"
+
   // The following are not standard in OpenAI's base message but might be used in responses
   refusal?: string | null;
   annotations?: string[];
 };
+
+// Define how Raycast expects tool calls from an assistant in the request history
+export type RaycastAssistantToolCall = {
+  id: string;
+  name: string; 
+  arguments: string;
+};
+
 export type RaycastMessage = {
   author: "user" | "assistant";
   content: {
-    text: string;
+    text: string | null; // Allow text to be null if tool_calls are present
   };
+  tool_calls?: RaycastAssistantToolCall[]; // For assistant messages that are tool calls
 };
 export type RaycastChatRequest = {
   additional_system_instructions: string;

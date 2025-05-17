@@ -318,6 +318,8 @@ async function handleChatCompletions(
       raycastRequest.tool_choice = "auto";
     }
 
+    console.log("Sending to Raycast API:", JSON.stringify(raycastRequest, null, 2)); // Log the request payload
+
     const raycastResponse = await fetch(RAYCAST_API_URL, {
       method: "POST",
       headers: getRaycastHeaders(env),

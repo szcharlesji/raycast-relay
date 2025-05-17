@@ -5,7 +5,18 @@ export type ModelInfo = {
 
 export type OpenAIMessage = {
   role: "user" | "assistant" | "system";
-  content: string;
+  content: string | null; // Allow content to be null for tool_calls
+  tool_calls?: Array<{ // Add tool_calls for OpenAI
+    id: string;
+    type: "function";
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+  // The following are not standard in OpenAI's base message but might be used in responses
+  refusal?: string | null;
+  annotations?: string[];
 };
 export type RaycastMessage = {
   author: "user" | "assistant";
@@ -41,12 +52,7 @@ export type OpenAIChatResponse = {
   model: string;
   choices: {
     index: number;
-    message: {
-      role: string;
-      content: string;
-      refusal: string | null;
-      annotations: string[];
-    };
+    message: OpenAIMessage; // Use the updated OpenAIMessage type
     logprobs: string | null;
     finish_reason: string | null;
   }[];
@@ -71,6 +77,16 @@ export type OpenAIChatResponse = {
 export type RaycastSSEData = {
   text?: string;
   finish_reason?: string | null;
+  tool_calls?: Array<{ // Add tool_calls for Raycast SSE data
+    id?: string; // id can be empty in intermediate steps
+    index?: number; // index can be present in intermediate steps
+    name?: string; // name is present in the final structure
+    arguments?: string; // arguments is present in the final structure
+    function?: { // function object is present in intermediate steps
+      name?: string;
+      arguments?: string;
+    };
+  }>;
 };
 
 export type RaycastRawModelData = {

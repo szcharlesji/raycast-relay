@@ -158,21 +158,52 @@ function convertMessages(openaiMessages: OpenAIMessage[]): {
 }
 
 /**
- * Parses Raycast SSE stream text into a single concatenated string.
+ * Parses Raycast SSE stream text and extracts relevant data.
  */
-function parseSSEResponse(responseText: string): string {
+function parseSSEResponse(responseText: string): {
+  fullText: string;
+  finishReason: string | null;
+  toolCalls: Array<{ id: string; name: string; arguments: string }> | null;
+} {
   let fullText = "";
-  for (const line of responseText.split("\n")) {
+  let finishReason: string | null = null;
+  let toolCalls: Array<{ id: string; name: string; arguments: string }> | null = null;
+
+  const lines = responseText.trim().split("\n");
+  for (const line of lines) {
     if (line.startsWith("data:")) {
       try {
-        const jsonData: RaycastSSEData = JSON.parse(line.substring(5).trim());
-        if (jsonData.text) fullText += jsonData.text;
+        const jsonDataString = line.substring(5).trim();
+        if (jsonDataString === "[DONE]") continue;
+
+        const jsonData = JSON.parse(jsonDataString) as RaycastSSEData;
+
+        if (jsonData.text) {
+          fullText += jsonData.text;
+        }
+        if (jsonData.finish_reason !== undefined && jsonData.finish_reason !== null) {
+          finishReason = jsonData.finish_reason;
+        }
+        if (jsonData.finish_reason === "tool_calls" && jsonData.tool_calls && jsonData.tool_calls.length > 0) {
+          // Extract final tool_calls structure: {name, arguments, id}
+          const parsedToolCalls = jsonData.tool_calls.map(tc => ({
+            id: tc.id!,
+            name: tc.name || (tc.function && tc.function.name),
+            arguments: tc.arguments || (tc.function && tc.function.arguments),
+          })).filter(tc => tc.id && tc.name && tc.arguments !== undefined) as Array<{ id: string; name: string; arguments: string }>;
+
+          if (parsedToolCalls.length > 0) {
+            toolCalls = parsedToolCalls;
+          } else if (jsonData.tool_calls.length > 0) {
+             console.warn("Tool calls present in SSE but could not be fully parsed into {id, name, arguments} structure from final message part:", jsonData.tool_calls);
+          }
+        }
       } catch (e) {
-        console.error("Failed to parse SSE data line:", line, "Error:", e);
+        console.error("Failed to parse SSE data line in parseSSEResponse:", line, "Error:", e);
       }
     }
   }
-  return fullText;
+  return { fullText, finishReason, toolCalls };
 }
 
 /**
@@ -429,9 +460,51 @@ async function handleNonStreamingResponse(
   requestedModelId: string,
 ): Promise<Response> {
   const responseText = await response.text();
-  const fullText = parseSSEResponse(responseText);
+  const { fullText, finishReason, toolCalls: raycastToolCalls } = parseSSEResponse(responseText);
 
-  console.log(responseText);
+  console.log(responseText); // Keep original logging
+
+  const message: OpenAIMessage = { // Use OpenAIMessage type
+    role: "assistant",
+    content: fullText,
+    // refusal and annotations are not part of OpenAIMessage by default,
+    // but OpenAIChatResponse.choices[].message expects them.
+    // We'll add them directly to the choice object later if needed, or adjust types.
+    // For now, let's assume OpenAIMessage can be extended or they are added later.
+  };
+
+  let finalFinishReason = finishReason || "stop";
+
+  if (finalFinishReason === "tool_calls") {
+    message.content = null;
+    if (raycastToolCalls && raycastToolCalls.length > 0) {
+      message.tool_calls = raycastToolCalls.map(tc => ({
+        id: tc.id,
+        type: "function",
+        function: {
+          name: tc.name,
+          arguments: tc.arguments,
+        },
+      }));
+    } else {
+      message.tool_calls = []; // OpenAI expects tool_calls if finish_reason is tool_calls
+      console.warn("Finish reason is 'tool_calls' but no tool_calls were parsed. Sending empty tool_calls array.");
+    }
+  } else if (raycastToolCalls && raycastToolCalls.length > 0) {
+      // Tool calls are present, but finish_reason is not "tool_calls".
+      // This might be unexpected by the client.
+      // Set content to null and include tool_calls.
+      message.content = null;
+      message.tool_calls = raycastToolCalls.map(tc => ({
+        id: tc.id,
+        type: "function",
+        function: {
+          name: tc.name,
+          arguments: tc.arguments,
+        },
+      }));
+      console.warn(`Parsed tool_calls but finish_reason is '${finalFinishReason}'. Setting content to null and including tool_calls.`);
+  }
 
   const openaiResponse: OpenAIChatResponse = {
     id: `chatcmpl-${uuidv4()}`,
@@ -442,14 +515,13 @@ async function handleNonStreamingResponse(
       {
         index: 0,
         message: {
-          role: "assistant",
-          content: fullText,
-          refusal: null,
-          annotations: [],
+          ...message, // Spread the prepared message
+          // Add fields expected by OpenAIChatResponse.choices[].message if not in OpenAIMessage
+          refusal: null, // Example, adjust as per actual OpenAIMessage vs OpenAIChatResponse.choices[].message needs
+          annotations: [], // Example
         },
         logprobs: null,
-        finish_reason: "stop", // Assume stop for non-streaming completion
-        // ai? How would you properly pass the correct finish reason? Also we'd want to pass tool_calls if present - look at the examle sse response
+        finish_reason: finalFinishReason,
       },
     ],
     // Usage data is unavailable from Raycast SSE

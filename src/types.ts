@@ -26,16 +26,22 @@ export type OpenAIMessage = {
 // Define how Raycast expects tool calls from an assistant in the request history
 export type RaycastAssistantToolCall = {
   id: string;
-  name: string; 
-  arguments: string;
+  type: "function"; // As per Raycast example log
+  function: {
+    name: string;
+    arguments: object; // Arguments should be an object
+  };
 };
 
 export type RaycastMessage = {
-  author: "user" | "assistant";
+  author: "user" | "assistant" | "tool"; // Added "tool" author
   content: {
-    text: string | null; // Allow text to be null if tool_calls are present
+    text: string | null; // Allow text to be null if tool_calls are present (for assistant) or for tool responses
   };
   tool_calls?: RaycastAssistantToolCall[]; // For assistant messages that are tool calls
+  // Fields for author: "tool" (matching Raycast's example log)
+  name?: string; // Function name, for author: "tool"
+  tool_call_id?: string; // Tool call ID, for author: "tool"
 };
 export type RaycastChatRequest = {
   additional_system_instructions: string;

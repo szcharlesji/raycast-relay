@@ -449,6 +449,7 @@ async function handleNonStreamingResponse(
         },
         logprobs: null,
         finish_reason: "stop", // Assume stop for non-streaming completion
+        // ai? How would you properly pass the correct finish reason? Also we'd want to pass tool_calls if present - look at the examle sse response
       },
     ],
     // Usage data is unavailable from Raycast SSE

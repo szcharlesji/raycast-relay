@@ -372,6 +372,7 @@ function handleStreamingResponse(
     const decoder = new TextDecoder();
     let buffer = "";
     let streamFinished = false;
+    let hasSentRoleAssistant = false; // Track if the initial assistant role has been sent
 
     try {
       while (!streamFinished) {
@@ -389,42 +390,101 @@ function handleStreamingResponse(
 
           if (line.startsWith("data:")) {
             const dataContent = line.substring(5).trim();
-            if (dataContent === "[DONE]") continue; // Raycast doesn't use this, but handle defensively
+            if (dataContent === "[DONE]") continue;
 
             try {
               const jsonData: RaycastSSEData = JSON.parse(dataContent);
-              const chunk = {
-                id: `chatcmpl-${uuidv4()}`,
-                object: "chat.completion.chunk",
-                created: Math.floor(Date.now() / 1000),
-                model: requestedModelId,
-                choices: [
-                  {
-                    index: 0,
-                    delta: { content: jsonData.text || "" },
-                    finish_reason:
-                      jsonData.finish_reason === undefined
-                        ? null
-                        : jsonData.finish_reason,
-                  },
-                ],
-              };
-              await writer.write(
-                encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
-              );
-              if (
-                jsonData.finish_reason !== null &&
-                jsonData.finish_reason !== undefined
-              ) {
+              const delta: any = {}; // Delta for the current OpenAI chunk
+
+              // Handle role: send 'assistant' role only for the first data-bearing chunk
+              if (!hasSentRoleAssistant && (jsonData.text !== undefined || (jsonData.tool_calls && jsonData.tool_calls.length > 0))) {
+                delta.role = "assistant";
+                hasSentRoleAssistant = true;
+              }
+
+              // Handle tool_calls from Raycast SSE
+              // Do not process jsonData.tool_calls if finish_reason is 'tool_calls', as that's a final summary, not a delta for streaming.
+              if (jsonData.tool_calls && jsonData.tool_calls.length > 0 && jsonData.finish_reason !== "tool_calls") {
+                const mappedToolCalls = jsonData.tool_calls.map(tc => {
+                  // For streaming, a tool_call delta needs an index and the function object.
+                  if (tc.index === undefined || tc.function === undefined) {
+                    console.warn("SSE: Skipping tool_call in stream delta due to missing index or function sub-object:", tc);
+                    return null;
+                  }
+
+                  const toolCallDelta: any = { index: tc.index, type: "function" };
+                  if (tc.id && tc.id !== "") toolCallDelta.id = tc.id; // Include ID if Raycast provides it (usually first event for the call)
+                  
+                  const funcDelta: { name?: string; arguments?: string } = {};
+                  let hasFuncDeltaContent = false;
+
+                  if (tc.function.name !== undefined) {
+                    funcDelta.name = tc.function.name;
+                    hasFuncDeltaContent = true;
+                  }
+                  if (tc.function.arguments !== undefined) {
+                    funcDelta.arguments = tc.function.arguments;
+                    hasFuncDeltaContent = true;
+                  }
+
+                  if (hasFuncDeltaContent) {
+                    toolCallDelta.function = funcDelta;
+                  } else if (tc.id && tc.id !== "") {
+                    // First event for this tool call (has an ID), ensure function object shell.
+                    toolCallDelta.function = {};
+                  }
+                  return toolCallDelta;
+                }).filter(tc => tc !== null);
+
+                if (mappedToolCalls.length > 0) {
+                  delta.tool_calls = mappedToolCalls;
+                }
+              }
+
+              // Handle content: mutually exclusive with tool_calls in the same delta for OpenAI.
+              if (delta.tool_calls && delta.tool_calls.length > 0) {
+                // If tool_calls are present, content must be null in the first chunk with role,
+                // or absent in subsequent chunks.
+                if (delta.role) {
+                  delta.content = null;
+                }
+              } else if (jsonData.text !== undefined) {
+                // Set content if no tool_calls in this delta.
+                // If it's a final message (e.g., finish_reason is set) and text is empty,
+                // avoid sending delta.content = "" to make the delta an empty object {}.
+                if (jsonData.finish_reason && jsonData.text === "") {
+                  // Do not set delta.content if it's a final message with empty text
+                } else {
+                  delta.content = jsonData.text;
+                }
+              }
+
+              const finishReasonForChunk = (jsonData.finish_reason === undefined) ? null : jsonData.finish_reason;
+
+              // Send chunk if delta has any properties, or if there's a finish_reason.
+              if (Object.keys(delta).length > 0 || finishReasonForChunk !== null) {
+                const choice = {
+                  index: 0,
+                  delta: delta,
+                  finish_reason: finishReasonForChunk,
+                };
+                const chunkPayload = {
+                  id: `chatcmpl-${uuidv4()}`,
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: requestedModelId,
+                  choices: [choice],
+                };
+                await writer.write(
+                  encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`),
+                );
+              }
+              
+              if (finishReasonForChunk !== null) {
                 streamFinished = true; // Raycast signals end with finish_reason
               }
             } catch (e) {
-              console.error(
-                "Failed to parse/process SSE chunk:",
-                dataContent,
-                "Error:",
-                e,
-              );
+              console.error("Failed to parse/process SSE chunk:", dataContent, "Error:", e);
             }
           }
         }
@@ -436,9 +496,7 @@ function handleStreamingResponse(
       await writer.abort(error); // Signal error downstream
     } finally {
       await writer.close();
-      reader
-        .cancel()
-        .catch((e) => console.error("Error cancelling reader:", e));
+      reader.cancel().catch((e) => console.error("Error cancelling reader:", e));
     }
   })();
 

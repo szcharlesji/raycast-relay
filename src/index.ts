@@ -333,13 +333,30 @@ async function handleChatCompletions(
     const currentDate = new Date().toISOString();
     const locale = "en-US"; // Consistent locale
 
-    // Construct additional_system_instructions similar to Raycast client example
+    // Construct additional_system_instructions more closely matching the Raycast client example
+    const userPrefsDetails = [
+      `  - Locale: ${locale}`,
+      `  - Timezone: Etc/UTC`, // Default placeholder, as we don't have this info
+      `  - Current Date: ${currentDate.substring(0, 10)}`,
+      `  - Unit Currency: USD`, // Default placeholder
+      `  - Unit Temperature: °C`, // Default placeholder
+      `  - Unit Length: m`, // Default placeholder
+      `  - Unit Mass: kg`, // Default placeholder
+      `  - Decimal Separator: .`, // Default placeholder for en-US
+      `  - Grouping Separator: ,`, // Default placeholder for en-US
+    ].join("\n");
+
     const additionalSystemInstructions =
-      `<user-preferences>` +
-        `<Locale>${locale}</Locale>` +
-        `<CurrentDate>${currentDate.substring(0, 10)}</CurrentDate>` + // YYYY-MM-DD format often used here
-      `</user-preferences>` +
-      `<extension-instructions></extension-instructions>`; // Empty for now, as we don't have specific extension instructions
+      `<user-preferences>\n` +
+      `  The user has the following system preferences:\n` +
+      `${userPrefsDetails}\n` +
+      `  Use the system preferences to format your answers accordingly.\n` +
+      `</user-preferences>\n\n` +
+      `<extension-instructions>\n` +
+      `  The following extensions have some extra instructions:\n` +
+      `  No specific extension instructions provided for this request.\n` + // Placeholder text
+      `  Follow the instructions whenever you use a tool of the extension.\n` +
+      `</extension-instructions>`;
 
     const raycastRequest: RaycastChatRequest = {
       model: internalModelName,

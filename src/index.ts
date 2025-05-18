@@ -144,35 +144,109 @@ function convertMessages(openaiMessages: OpenAIMessage[]): {
 
   openaiMessages.forEach((msg, index) => {
     if (msg.role === "system" && index === 0) {
-      systemInstruction = msg.content;
-    } else if (msg.role === "user" || msg.role === "assistant") {
+      systemInstruction = msg.content ?? "markdown"; // Use content if available, else default
+    } else if (msg.role === "user") {
       raycastMessages.push({
-        author: msg.role,
-        content: { text: msg.content },
+        author: "user",
+        content: { text: msg.content ?? "" }, // Ensure text is not null
+      });
+    } else if (msg.role === "assistant") {
+      const assistantMessage: RaycastMessage = {
+        author: "assistant",
+        content: { text: msg.content ?? null }, // Text can be null if there are tool_calls
+      };
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
+        assistantMessage.tool_calls = msg.tool_calls.map(tc => {
+          let parsedArgs: object = {};
+          try {
+            // OpenAI arguments are a JSON string, Raycast example shows an object
+            parsedArgs = JSON.parse(tc.function.arguments);
+          } catch (e) {
+            console.error(
+              `Failed to parse tool call arguments string into object: "${tc.function.arguments}". Error: ${e}. Sending as-is or empty.`,
+            );
+            // Fallback or error handling for unparsable arguments.
+            // For now, sending an empty object if parsing fails, to match 'object' type.
+            // A more robust solution might involve logging this and deciding on a consistent fallback.
+            parsedArgs = {}; // Default to empty object if parsing fails to maintain type integrity
+          }
+          return {
+            id: tc.id,
+            type: "function", // Add type as per Raycast example
+            function: { // Nest name and arguments under 'function'
+              name: tc.function.name,
+              arguments: parsedArgs, // Use parsed arguments object
+            },
+          };
+        });
+        // As per OpenAI spec, content should be null when tool_calls are present.
+        assistantMessage.content.text = null;
+      }
+      raycastMessages.push(assistantMessage);
+    } else if (msg.role === "tool") {
+      // Convert OpenAI tool response to Raycast tool message format
+      raycastMessages.push({
+        author: "tool",
+        content: {
+          text: msg.content ?? "", // Tool output string
+        },
+        name: msg.name, // Function name from OpenAI tool message
+        tool_call_id: msg.tool_call_id, // Tool call ID from OpenAI tool message
       });
     }
-    // Ignore other roles or subsequent system messages for now
+    // Other roles or subsequent system messages are ignored
   });
 
   return { raycastMessages, systemInstruction };
 }
 
 /**
- * Parses Raycast SSE stream text into a single concatenated string.
+ * Parses Raycast SSE stream text and extracts relevant data.
  */
-function parseSSEResponse(responseText: string): string {
+function parseSSEResponse(responseText: string): {
+  fullText: string;
+  finishReason: string | null;
+  toolCalls: Array<{ id: string; name: string; arguments: string }> | null;
+} {
   let fullText = "";
-  for (const line of responseText.split("\n")) {
+  let finishReason: string | null = null;
+  let toolCalls: Array<{ id: string; name: string; arguments: string }> | null = null;
+
+  const lines = responseText.trim().split("\n");
+  for (const line of lines) {
     if (line.startsWith("data:")) {
       try {
-        const jsonData: RaycastSSEData = JSON.parse(line.substring(5).trim());
-        if (jsonData.text) fullText += jsonData.text;
+        const jsonDataString = line.substring(5).trim();
+        if (jsonDataString === "[DONE]") continue;
+
+        const jsonData = JSON.parse(jsonDataString) as RaycastSSEData;
+
+        if (jsonData.text) {
+          fullText += jsonData.text;
+        }
+        if (jsonData.finish_reason !== undefined && jsonData.finish_reason !== null) {
+          finishReason = jsonData.finish_reason;
+        }
+        if (jsonData.finish_reason === "tool_calls" && jsonData.tool_calls && jsonData.tool_calls.length > 0) {
+          // Extract final tool_calls structure: {name, arguments, id}
+          const parsedToolCalls = jsonData.tool_calls.map(tc => ({
+            id: tc.id!,
+            name: tc.name || (tc.function && tc.function.name),
+            arguments: tc.arguments || (tc.function && tc.function.arguments),
+          })).filter(tc => tc.id && tc.name && tc.arguments !== undefined) as Array<{ id: string; name: string; arguments: string }>;
+
+          if (parsedToolCalls.length > 0) {
+            toolCalls = parsedToolCalls;
+          } else if (jsonData.tool_calls.length > 0) {
+             console.warn("Tool calls present in SSE but could not be fully parsed into {id, name, arguments} structure from final message part:", jsonData.tool_calls);
+          }
+        }
       } catch (e) {
-        console.error("Failed to parse SSE data line:", line, "Error:", e);
+        console.error("Failed to parse SSE data line in parseSSEResponse:", line, "Error:", e);
       }
     }
   }
-  return fullText;
+  return { fullText, finishReason, toolCalls };
 }
 
 /**
@@ -183,9 +257,14 @@ async function handleChatCompletions(
   env: Env,
 ): Promise<Response> {
   try {
-    const body = (await req.json()) as OpenAIChatRequest;
+    const b = (await req.json());
+    console.log(b);
+
+    //const body = (await req.json()) as OpenAIChatRequest;
+    const body = b as OpenAIChatRequest;
     const {
       messages,
+      tools,
       model: requestedModelId = DEFAULT_MODEL_ID,
       temperature = 0.5,
       stream = false,
@@ -224,11 +303,74 @@ async function handleChatCompletions(
       );
     }
 
+    const convertedTools = [];
+    if (tools) {
+      tools.forEach((tool) => {
+        // Ensure 'tool' is an OpenAI tool object with type "function" and a function definition
+        if (tool.type === "function" && tool.function) {
+          const convertedTool = { function: tool.function, type: "local_tool" };
+          convertedTools.push(convertedTool);
+        } else {
+          // Log or handle other tool types if necessary, or simply skip them
+          console.warn(`Skipping tool with unhandled type or missing function definition: ${tool.type || 'unknown type'}`, tool);
+        }
+      });
+    }
+
+    // const native_tool = {
+    //   "function": {
+    //     "description": "Gets weather for a specific location.\n\nFormat the weather in a nice and user-friendly way. Add emojis when appropriate. Don't overwhelm the user with detailed information if they don't need it.",
+    //     "name": "weather-get-weather",
+    //     "parameters": {
+    //       "properties": {
+    //         "location": {
+    //           "description": "Location to get the weather from",
+    //           "type": "string"
+    //         },
+    //         "query": {
+    //           "description": "Type of weather query",
+    //           "enum": ["current", "hourly", "daily"],
+    //           "type": "string"
+    //         }
+    //       },
+    //       "required": ["location", "query"],
+    //       "type": "object"
+    //     }
+    //   },
+    //   "type": "local_tool"
+    // };
+    // convertedTools.push(native_tool);
+    
+    console.log(`These are the tools:`, convertedTools);
+
     console.log(
       `Relaying request for ${requestedModelId} to Raycast ${provider}/${internalModelName}`,
     );
 
     const { raycastMessages, systemInstruction } = convertMessages(messages);
+
+    const currentDate = new Date().toISOString();
+    const locale = "en-US"; // Consistent locale
+
+    // Construct additional_system_instructions more closely matching the Raycast client example
+    const userPrefsDetails = [
+      `  - Locale: ${locale}`,
+      `  - Timezone: Etc/UTC`, // Default placeholder, as we don't have this info
+      `  - Current Date: ${currentDate.substring(0, 10)}`,
+      `  - Unit Currency: USD`, // Default placeholder
+      `  - Unit Temperature: °C`, // Default placeholder
+      `  - Unit Length: m`, // Default placeholder
+      `  - Unit Mass: kg`, // Default placeholder
+      `  - Decimal Separator: .`, // Default placeholder for en-US
+      `  - Grouping Separator: ,`, // Default placeholder for en-US
+    ].join("\n");
+
+    const additionalSystemInstructions =
+      `<user-preferences>\n` +
+      `  The user has the following system preferences:\n` +
+      `${userPrefsDetails}\n` +
+      `  Use the system preferences to format your answers accordingly.\n` +
+      `</user-preferences>\n`; // Removed <extension-instructions> to match example
 
     const raycastRequest: RaycastChatRequest = {
       model: internalModelName,
@@ -236,13 +378,20 @@ async function handleChatCompletions(
       messages: raycastMessages,
       system_instruction: systemInstruction,
       temperature,
-      additional_system_instructions: "",
+      additional_system_instructions: additionalSystemInstructions,
       debug: false,
-      locale: "en-US",
+      locale: locale,
       source: "ai_chat",
       thread_id: uuidv4(),
-      tools: [],
+      tools: convertedTools,
+      current_date: currentDate, // Full ISO string for current_date field
     };
+
+    if (convertedTools.length > 0) {
+      raycastRequest.tool_choice = "auto";
+    }
+
+    console.log("Sending to Raycast API:", JSON.stringify(raycastRequest, null, 2)); // Log the request payload
 
     const raycastResponse = await fetch(RAYCAST_API_URL, {
       method: "POST",
@@ -298,6 +447,7 @@ function handleStreamingResponse(
     const decoder = new TextDecoder();
     let buffer = "";
     let streamFinished = false;
+    let hasSentRoleAssistant = false; // Track if the initial assistant role has been sent
 
     try {
       while (!streamFinished) {
@@ -315,42 +465,102 @@ function handleStreamingResponse(
 
           if (line.startsWith("data:")) {
             const dataContent = line.substring(5).trim();
-            if (dataContent === "[DONE]") continue; // Raycast doesn't use this, but handle defensively
+            if (dataContent === "[DONE]") continue;
 
             try {
+              console.log("Received Raycast SSE data chunk:", dataContent); // Log raw Raycast SSE data chunk
               const jsonData: RaycastSSEData = JSON.parse(dataContent);
-              const chunk = {
-                id: `chatcmpl-${uuidv4()}`,
-                object: "chat.completion.chunk",
-                created: Math.floor(Date.now() / 1000),
-                model: requestedModelId,
-                choices: [
-                  {
-                    index: 0,
-                    delta: { content: jsonData.text || "" },
-                    finish_reason:
-                      jsonData.finish_reason === undefined
-                        ? null
-                        : jsonData.finish_reason,
-                  },
-                ],
-              };
-              await writer.write(
-                encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
-              );
-              if (
-                jsonData.finish_reason !== null &&
-                jsonData.finish_reason !== undefined
-              ) {
+              const delta: any = {}; // Delta for the current OpenAI chunk
+
+              // Handle role: send 'assistant' role only for the first data-bearing chunk
+              if (!hasSentRoleAssistant && (jsonData.text !== undefined || (jsonData.tool_calls && jsonData.tool_calls.length > 0))) {
+                delta.role = "assistant";
+                hasSentRoleAssistant = true;
+              }
+
+              // Handle tool_calls from Raycast SSE
+              // Do not process jsonData.tool_calls if finish_reason is 'tool_calls', as that's a final summary, not a delta for streaming.
+              if (jsonData.tool_calls && jsonData.tool_calls.length > 0 && jsonData.finish_reason !== "tool_calls") {
+                const mappedToolCalls = jsonData.tool_calls.map(tc => {
+                  // For streaming, a tool_call delta needs an index and the function object.
+                  if (tc.index === undefined || tc.function === undefined) {
+                    console.warn("SSE: Skipping tool_call in stream delta due to missing index or function sub-object:", tc);
+                    return null;
+                  }
+
+                  const toolCallDelta: any = { index: tc.index, type: "function" };
+                  if (tc.id && tc.id !== "") toolCallDelta.id = tc.id; // Include ID if Raycast provides it (usually first event for the call)
+                  
+                  const funcDelta: { name?: string; arguments?: string } = {};
+                  let hasFuncDeltaContent = false;
+
+                  if (tc.function.name !== undefined) {
+                    funcDelta.name = tc.function.name;
+                    hasFuncDeltaContent = true;
+                  }
+                  if (tc.function.arguments !== undefined) {
+                    funcDelta.arguments = tc.function.arguments;
+                    hasFuncDeltaContent = true;
+                  }
+
+                  if (hasFuncDeltaContent) {
+                    toolCallDelta.function = funcDelta;
+                  } else if (tc.id && tc.id !== "") {
+                    // First event for this tool call (has an ID), ensure function object shell.
+                    toolCallDelta.function = {};
+                  }
+                  return toolCallDelta;
+                }).filter(tc => tc !== null);
+
+                if (mappedToolCalls.length > 0) {
+                  delta.tool_calls = mappedToolCalls;
+                }
+              }
+
+              // Handle content: mutually exclusive with tool_calls in the same delta for OpenAI.
+              if (delta.tool_calls && delta.tool_calls.length > 0) {
+                // If tool_calls are present, content must be null in the first chunk with role,
+                // or absent in subsequent chunks.
+                if (delta.role) {
+                  delta.content = null;
+                }
+              } else if (jsonData.text !== undefined) {
+                // Set content if no tool_calls in this delta.
+                // If it's a final message (e.g., finish_reason is set) and text is empty,
+                // avoid sending delta.content = "" to make the delta an empty object {}.
+                if (jsonData.finish_reason && jsonData.text === "") {
+                  // Do not set delta.content if it's a final message with empty text
+                } else {
+                  delta.content = jsonData.text;
+                }
+              }
+
+              const finishReasonForChunk = (jsonData.finish_reason === undefined) ? null : jsonData.finish_reason;
+
+              // Send chunk if delta has any properties, or if there's a finish_reason.
+              if (Object.keys(delta).length > 0 || finishReasonForChunk !== null) {
+                const choice = {
+                  index: 0,
+                  delta: delta,
+                  finish_reason: finishReasonForChunk,
+                };
+                const chunkPayload = {
+                  id: `chatcmpl-${uuidv4()}`,
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: requestedModelId,
+                  choices: [choice],
+                };
+                await writer.write(
+                  encoder.encode(`data: ${JSON.stringify(chunkPayload)}\n\n`),
+                );
+              }
+              
+              if (finishReasonForChunk !== null) {
                 streamFinished = true; // Raycast signals end with finish_reason
               }
             } catch (e) {
-              console.error(
-                "Failed to parse/process SSE chunk:",
-                dataContent,
-                "Error:",
-                e,
-              );
+              console.error("Failed to parse/process SSE chunk:", dataContent, "Error:", e);
             }
           }
         }
@@ -362,9 +572,7 @@ function handleStreamingResponse(
       await writer.abort(error); // Signal error downstream
     } finally {
       await writer.close();
-      reader
-        .cancel()
-        .catch((e) => console.error("Error cancelling reader:", e));
+      reader.cancel().catch((e) => console.error("Error cancelling reader:", e));
     }
   })();
 
@@ -386,7 +594,51 @@ async function handleNonStreamingResponse(
   requestedModelId: string,
 ): Promise<Response> {
   const responseText = await response.text();
-  const fullText = parseSSEResponse(responseText);
+  const { fullText, finishReason, toolCalls: raycastToolCalls } = parseSSEResponse(responseText);
+
+  console.log(responseText); // Keep original logging
+
+  const message: OpenAIMessage = { // Use OpenAIMessage type
+    role: "assistant",
+    content: fullText,
+    // refusal and annotations are not part of OpenAIMessage by default,
+    // but OpenAIChatResponse.choices[].message expects them.
+    // We'll add them directly to the choice object later if needed, or adjust types.
+    // For now, let's assume OpenAIMessage can be extended or they are added later.
+  };
+
+  let finalFinishReason = finishReason || "stop";
+
+  if (finalFinishReason === "tool_calls") {
+    message.content = null;
+    if (raycastToolCalls && raycastToolCalls.length > 0) {
+      message.tool_calls = raycastToolCalls.map(tc => ({
+        id: tc.id,
+        type: "function",
+        function: {
+          name: tc.name,
+          arguments: tc.arguments,
+        },
+      }));
+    } else {
+      message.tool_calls = []; // OpenAI expects tool_calls if finish_reason is tool_calls
+      console.warn("Finish reason is 'tool_calls' but no tool_calls were parsed. Sending empty tool_calls array.");
+    }
+  } else if (raycastToolCalls && raycastToolCalls.length > 0) {
+      // Tool calls are present, but finish_reason is not "tool_calls".
+      // This might be unexpected by the client.
+      // Set content to null and include tool_calls.
+      message.content = null;
+      message.tool_calls = raycastToolCalls.map(tc => ({
+        id: tc.id,
+        type: "function",
+        function: {
+          name: tc.name,
+          arguments: tc.arguments,
+        },
+      }));
+      console.warn(`Parsed tool_calls but finish_reason is '${finalFinishReason}'. Setting content to null and including tool_calls.`);
+  }
 
   const openaiResponse: OpenAIChatResponse = {
     id: `chatcmpl-${uuidv4()}`,
@@ -397,13 +649,13 @@ async function handleNonStreamingResponse(
       {
         index: 0,
         message: {
-          role: "assistant",
-          content: fullText,
-          refusal: null,
-          annotations: [],
+          ...message, // Spread the prepared message
+          // Add fields expected by OpenAIChatResponse.choices[].message if not in OpenAIMessage
+          refusal: null, // Example, adjust as per actual OpenAIMessage vs OpenAIChatResponse.choices[].message needs
+          annotations: [], // Example
         },
         logprobs: null,
-        finish_reason: "stop", // Assume stop for non-streaming completion
+        finish_reason: finalFinishReason,
       },
     ],
     // Usage data is unavailable from Raycast SSE

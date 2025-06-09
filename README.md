@@ -159,7 +159,3 @@ Here's a list of all the model IDs:
 - xai-grok-3
 - xai-grok-3-mini
 - xai-grok-2-latest
-
-## License
-
-MIT

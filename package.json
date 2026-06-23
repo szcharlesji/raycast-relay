@@ -1,27 +1,14 @@
 {
   "name": "raycast-relay",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "test": "vitest",
-    "cf-typegen": "wrangler types"
+    "dev": "node src/node-server.mjs",
+    "start": "node src/node-server.mjs",
+    "check": "node --check src/node-server.mjs"
   },
-  "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.32",
-    "@eslint/eslintrc": "^3.3.1",
-    "@eslint/js": "^9.27.0",
-    "@types/node": "^22.15.21",
-    "jiti": "^2.4.2",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.32.1",
-    "vitest": "~3.1.4",
-    "wrangler": "^4.16.1"
-  },
-  "dependencies": {
-    "@types/uuid": "^10.0.0",
-    "uuid": "^11.1.0"
+  "engines": {
+    "node": ">=22"
   }
 }

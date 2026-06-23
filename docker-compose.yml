@@ -1,0 +1,12 @@
+services:
+  raycast-relay:
+    build: .
+    env_file:
+      - .dev.vars
+    ports:
+      - "8788:8788"
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8788/health"]

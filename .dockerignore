@@ -2,8 +2,9 @@ node_modules
 .dev.vars
 .env
 .env.*
+.git
 .wrangler
-
+coverage
+dist
 logs
 *.log
-.DS_Store

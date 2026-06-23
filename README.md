@@ -1,161 +1,227 @@
-# Raycast Relay for Cloudflare Workers
+# Raycast Relay
 
-- [Setup](#setup)
-- [Usage](#usage)
-- [Use with Cursor](#use-with-cursor)
-- [Available Models](#available-models)
+OpenAI-compatible HTTP relay for Raycast AI.
 
-This project provides a relay server that allows you to use Raycast AI models through an OpenAI-compatible API interface, deployed as a Cloudflare Worker.
+The working runtime is the Node server in this repo. Cloudflare Workers are intentionally not included because Raycast currently rejects Worker outbound subrequests with `403 Forbidden` when Cloudflare injects the `CF-Worker` header.
+
+## Status
+
+- `GET /v1/models` works from the Node relay.
+- `POST /v1/chat/completions` works from the Node relay.
+- Streaming and non-streaming OpenAI-compatible responses are supported.
+- Cloudflare Workers cannot call Raycast directly at the moment.
+- Cloudflare DNS, CDN, and Tunnel can still sit in front of a Node origin.
+
+## Requirements
+
+- Node.js 22 or newer.
+- A Raycast account with Raycast AI access.
+- Proxyman, Charles, or another HTTPS debugging proxy on macOS.
+
+## Get Raycast Credentials
+
+Enable SSL proxying for `backend.raycast.com`, then send a normal Raycast AI chat request. In Proxyman or Charles, find a successful request to:
+
+```text
+POST https://backend.raycast.com/api/v1/ai/chat_completions
+```
+
+Copy these request values:
+
+- `Authorization: Bearer ...` -> `RAYCAST_BEARER_TOKEN`
+- `X-Raycast-DeviceId` -> `RAYCAST_DEVICE_ID`
+- `X-Raycast-Signature` -> decode this JWT and copy its `aid` -> `RAYCAST_AID`
+
+Decode `RAYCAST_AID`:
+
+```bash
+node -e 'const jwt = process.argv[1]; console.log(JSON.parse(Buffer.from(jwt.split(".")[1], "base64url")).aid)' 'PASTE_X_RAYCAST_SIGNATURE_HERE'
+```
+
+The relay generates fresh `X-Raycast-Timestamp`, `X-Raycast-Signature-v2`, and `X-Raycast-Signature` values for every Raycast request. Do not reuse captured signatures.
+
+`SIG_SECRET` is also required. It is the Raycast app signing key used to calculate request signatures. It is not user-specific, but this repo does not bundle it in source code.
+
+## Local Setup
+
+Create `.dev.vars` in the repo root. This file is gitignored.
+
+```bash
+RAYCAST_BEARER_TOKEN=your_captured_bearer_token
+RAYCAST_DEVICE_ID=your_captured_device_id
+RAYCAST_AID=your_decoded_aid
+SIG_SECRET=your_current_signature_secret
+API_KEY=local-test-key
+RAYCAST_USER_AGENT=Raycast/1.104.20 (macOS Version 26.5.1 (Build 25F80))
+RAYCAST_EXPERIMENTAL=chatBranching, mcpHTTPServer
+
+# Optional model-list filters:
+# INCLUDE_PREMIUM=false
+# INCLUDE_DEPRECATED=false
+
+```
+
+Install and run:
+
+```bash
+npm run dev -- --host 127.0.0.1 --port 8788
+```
+
+OpenAI-compatible base URL:
+
+```text
+http://127.0.0.1:8788/v1
+```
+
+Use `API_KEY` as the API key if it is set. With the example above, use `local-test-key`.
+
+## Test
+
+Health:
+
+```bash
+curl -sS http://127.0.0.1:8788/health \
+  -H 'Authorization: Bearer local-test-key'
+```
+
+Models:
+
+```bash
+curl -sS http://127.0.0.1:8788/v1/models \
+  -H 'Authorization: Bearer local-test-key'
+```
+
+Non-streaming chat:
+
+```bash
+curl -sS http://127.0.0.1:8788/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer local-test-key' \
+  -d '{
+    "model": "openai-gpt-5-mini",
+    "messages": [{"role": "user", "content": "Reply with exactly: pong"}],
+    "stream": false
+  }'
+```
+
+Streaming chat:
+
+```bash
+curl -sS -N http://127.0.0.1:8788/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer local-test-key' \
+  -d '{
+    "model": "baseten-zai-org/GLM-5.2",
+    "messages": [{"role": "user", "content": "Reply with exactly: pong"}],
+    "stream": true
+  }'
+```
 
 ## Deployment
 
-### One-Click Deployment (Recommended)
+### Plain Node
 
-1. Get your Raycast AI Token in the step 1 below
-2. Deploy
-3. Add `RAYCAST_BEARER_TOKEN` in Settings -> Domain & Routes -> Variables and Secrets. You can optionally add a `API_KEY`, `ADVANCED`, `INCLUDE_DEPRECATED`. Follow the guide below
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/szcharlesji/raycast-relay)
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/)
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
-- Cloudflare account
-- Raycast API credential (Bearer token)
-- HTTP Debug Tool like Proxyman or Charles on macOS
-
-### Setup
-
-1. Get your Raycast AI Token
-
-Proxyman: Add raycast to your SSL proxying list, resend a request to AI. You will see a request like in the photo below: Copy the API key after Authorization Bearer.
-
-![proxyman](/img/proxyman.jpeg)
-
-2. Clone this repository
+Set the same environment variables from `.dev.vars`, then run:
 
 ```bash
-git clone https://github.com/szcharlesji/raycast-relay
-cd raycast-relay
+npm start
 ```
 
-3. Install dependencies:
+For public hosting, bind to all interfaces:
 
 ```bash
-npm install
+HOST=0.0.0.0 PORT=8788 npm start
 ```
 
-3. Configure your environment variables:
+This works on a VPS, Fly.io, Railway, Render, Northflank, systemd, Docker, or similar Node-capable hosts.
+
+### Docker
+
+Build and run directly:
 
 ```bash
-# Install wrangler
-npm install -g wrangler
-
-# Set your Raycast credentials as secrets
-wrangler secret put RAYCAST_BEARER_TOKEN
-
-# Optionally set an API key for authentication, if you want to use it with cursor, follow the cursor setup
-wrangler secret put API_KEY
-
-# Optionally set to filter out the advanced AI options if you don't have the subscription.
-wrangler secret put ADVANCED
-
-# Optionall set to include deprecated models
-wrangler secret put INCLUDE_DEPRECATED
+docker build -t raycast-relay .
+docker run --env-file .dev.vars -p 8788:8788 raycast-relay
 ```
 
-4. Deploy to Cloudflare Workers:
+Or use Docker Compose:
 
 ```bash
-npm run deploy
+docker compose up --build
 ```
 
-## Usage
+### Cloudflare
 
-Once deployed, you can use the worker as an OpenAI-compatible API endpoint:
+Do not deploy the Raycast-calling relay as a Cloudflare Worker. Raycast rejects Worker subrequests because Cloudflare injects `CF-Worker`, and Workers cannot remove it.
 
+These Cloudflare setups are fine:
+
+- Cloudflare DNS or CDN in front of a Node origin.
+- Cloudflare Tunnel to a local or remote Node relay.
+- A Worker that forwards to your Node relay, as long as the Worker does not call `backend.raycast.com` itself.
+
+This repo is intentionally Node-only. It does not include a Worker entrypoint.
+
+## API
+
+### `GET /health`
+
+Returns:
+
+```json
+{"status":"ok"}
 ```
-https://your-worker-name.your-account.workers.dev/v1
+
+### `GET /v1/models`
+
+Fetches Raycast's current model list and returns OpenAI-compatible model objects.
+
+Optional filters:
+
+- `INCLUDE_PREMIUM=false` hides models where Raycast marks `requires_better_ai: true`.
+- `INCLUDE_DEPRECATED=false` hides models where Raycast marks `availability: "deprecated"`.
+- `ADVANCED=false` is still accepted as a backward-compatible alias for `INCLUDE_PREMIUM=false`.
+
+### `POST /v1/chat/completions`
+
+Accepts OpenAI-style chat requests:
+
+```json
+{
+  "model": "openai-gpt-5-mini",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "stream": false
+}
 ```
 
-### API Endpoints
+Model IDs are mapped to Raycast provider/model pairs by prefix. Examples:
 
-- `GET /v1/models` - List available models
-- `POST /v1/chat/completions` - Create a chat completion
-- `GET /health` - Health check endpoint
+- `openai-gpt-5-mini` -> provider `openai`, model `gpt-5-mini`
+- `baseten-zai-org/GLM-5.2` -> provider `baseten`, model `zai-org/GLM-5.2`
+- `anthropic-claude-sonnet-4-6` -> provider `anthropic`, model `claude-sonnet-4-6`
 
-### Authentication
+## Troubleshooting
 
-If you've set an API_KEY, include it in your requests:
+`403 Forbidden` from Raycast:
 
-```
-Authorization: Bearer your-api-key
-```
+- If this happens from Cloudflare Workers, use the Node relay instead.
+- If this happens from Node, refresh your Raycast login and recapture `RAYCAST_BEARER_TOKEN`, `RAYCAST_DEVICE_ID`, and `RAYCAST_AID`.
+- If the request shape is correct but signatures fail, refresh `SIG_SECRET`.
 
-## Use with Cursor
+SSE `unknown_api_error` from Raycast:
 
-Raycast-relay supports Cursor, but a workaround is needed since Cursor has a [known issue](https://github.com/getcursor/cursor/issues/2871) with custom AI endpoints other than OpenAI. Thanks to [Vincent](https://github.com/missuo)'s suggestions
+- Usually means `X-Raycast-Signature-v2` does not match the exact JSON payload sent to Raycast.
+- Make sure `SIG_SECRET` is current if Raycast changed the signing secret.
 
-In order to use your relayed API endpoint in cursor:
+Empty or failing `/v1/models`:
 
-1. Generate an API key in [OpenAI Platform](https://platform.openai.com/settings/organization/api-keys), you just need to use it to verify it
-2. Verify this key in Cursor by putting it in `Cursor Settings > Models > OpenAI API Key` with the default OpenAI endpoint
-3. Upload your wrangler secret `API_KEY` by `wrangler secret put API_KEY`, this needs to be the same key as the OpenAI key
-4. Override your OpenAI Base URL with your wrangler endpoint
-5. Save it
-6. Add a custom model that you can find in the `/v1/models` endpoint or check out [Available Models](#available-models)
-7. Done!
+- `GET /api/v1/ai/models` is signed as if the request body were the literal string `{}` even though the HTTP request has no body. The Node relay already does this.
 
-![cursor_edit](img/cursor_edit.png)
+Client says invalid API key:
 
-## Available Models
+- Use the value of `API_KEY` as the OpenAI API key.
+- Unset `API_KEY` if you want to disable relay-side authentication.
 
-Here's a list of all the model IDs:
+## Security
 
-- raycast-ray1
-- raycast-ray1-mini
-- openai-gpt-4.1
-- openai-gpt-4.1-mini
-- openai-gpt-4.1-nano
-- openai-gpt-4
-- openai-gpt-4-turbo
-- openai-gpt-4o
-- openai-gpt-4o-mini
-- openai_o1-o3
-- openai_o1-o4-mini
-- openai_o1-o1-mini
-- openai_o1-o1
-- openai_o1-o3-mini
-- anthropic-claude-haiku
-- anthropic-claude-sonnet
-- anthropic-claude-3-7-sonnet-latest
-- anthropic-claude-3-7-sonnet-latest-reasoning
-- anthropic-claude-opus
-- anthropic-claude-sonnet-4
-- anthropic-claude-opus-4
-- anthropic-claude-sonnet-4-reasoning
-- perplexity-sonar
-- perplexity-sonar-pro
-- perplexity-sonar-reasoning
-- perplexity-sonar-reasoning-pro
-- groq-meta-llama/llama-4-scout-17b-16e-instruct
-- groq-llama-3.3-70b-versatile
-- groq-llama-3.1-8b-instant
-- groq-llama3-70b-8192
-- together-meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo
-- mistral-open-mistral-nemo
-- mistral-mistral-large-latest
-- mistral-mistral-small-latest
-- mistral-codestral-latest
-- groq-deepseek-r1-distill-llama-70b
-- google-gemini-2.5-pro
-- google-gemini-1.5-flash
-- google-gemini-2.5-flash
-- google-gemini-2.0-flash
-- google-gemini-2.0-flash-thinking
-- together-deepseek-ai/DeepSeek-R1
-- together-deepseek-ai/DeepSeek-V3
-- xai-grok-3
-- xai-grok-3-mini
-- xai-grok-2-latest
+Raycast request credentials give access to your Raycast AI account. Keep `.dev.vars` private, use server-side environment variables in production, and rotate/re-login if a token was pasted into logs or chat.
